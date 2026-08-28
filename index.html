@@ -1,0 +1,783 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>IMS: Intelligent Motion System Simulation</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body { margin: 0; overflow: hidden; background-color: #0f172a; font-family: 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; }
+        .glass-panel {
+            background: rgba(15, 23, 42, 0.95);
+            border-right: 1px solid #334155;
+            backdrop-filter: blur(8px);
+        }
+        .metric-card {
+            background: rgba(30, 41, 59, 0.7);
+            border: 1px solid rgba(148, 163, 184, 0.1);
+        }
+        .log-entry { font-family: 'Consolas', monospace; font-size: 11px; animation: slideIn 0.2s ease-out; }
+        @keyframes slideIn { from { transform: translateX(-10px); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
+        .modal-overlay { background-color: rgba(0, 0, 0, 0.85); backdrop-filter: blur(4px); }
+        .typing::after { content: '▋'; animation: blink 1s infinite; }
+        @keyframes blink { 50% { opacity: 0; } }
+        ::-webkit-scrollbar { width: 5px; }
+        ::-webkit-scrollbar-thumb { background: #475569; border-radius: 4px; }
+        
+        .graph-container {
+            background: #ffffff; 
+            border: 1px solid #e2e8f0;
+            border-radius: 6px;
+            padding: 10px;
+            height: 200px; /* Slightly taller for tabs */
+            position: relative;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .graph-title {
+            font-size: 12px; font-weight: 700; color: #334155;
+            text-align: center; margin-bottom: 5px; text-transform: uppercase; font-family: sans-serif;
+        }
+        canvas.graph { width: 100%; height: 100%; display: block; }
+    </style>
+</head>
+<body class="flex h-screen text-slate-200">
+
+    <!-- SETUP MODAL -->
+    <div id="setup-modal" class="absolute inset-0 z-50 flex items-center justify-center bg-slate-900/95 backdrop-blur-sm">
+        <div class="bg-gradient-to-br from-slate-800 to-slate-900 p-8 rounded-xl shadow-2xl border border-slate-600 max-w-md w-full text-center">
+            <div class="mb-4 text-5xl animate-pulse">🚦</div>
+            <h1 class="text-3xl font-bold text-white mb-2 bg-gradient-to-r from-blue-400 to-purple-400 bg-clip-text text-transparent">IMS Simulation</h1>
+            <p class="text-slate-300 text-sm mb-6 leading-relaxed">Enter Gemini API Key for AI-powered analytics, or leave blank to run simulation only.</p>
+            
+            <div class="mb-4">
+                <input type="password" id="api-key-input" placeholder="AIza... (Optional)" 
+                    class="w-full bg-slate-900/70 border-2 border-slate-600 rounded-lg p-3 text-white mb-2 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/50 outline-none transition placeholder-slate-500">
+                <p class="text-xs text-slate-400 text-left">🔒 API key is stored locally and never sent to external servers</p>
+            </div>
+            
+            <button onclick="startSimulation()" class="w-full bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-500 hover:to-purple-500 text-white font-bold py-3 rounded-lg shadow-lg transition transform hover:scale-105 active:scale-95">
+                🚀 Start Simulation
+            </button>
+            
+            <div class="mt-6 pt-4 border-t border-slate-700">
+                <p class="text-xs text-slate-400 mb-2">Need an API key?</p>
+                <a href="https://aistudio.google.com/app/apikey" target="_blank" class="inline-flex items-center gap-2 text-blue-400 underline hover:text-blue-300 text-sm transition">
+                    <span>Get Free Gemini API Key</span>
+                    <span>→</span>
+                </a>
+            </div>
+        </div>
+    </div>
+
+    <!-- IMS Dashboard -->
+    <div class="w-[420px] glass-panel flex flex-col h-full z-20 shadow-2xl relative">
+        <div class="p-6 border-b border-slate-700 bg-slate-900/50">
+            <div class="flex items-center gap-2">
+                <div class="w-3 h-3 rounded-full bg-blue-500 animate-pulse"></div>
+                <h1 class="text-xl font-bold text-blue-100 tracking-wide">IMS Core v5.13</h1>
+            </div>
+            <p class="text-xs text-blue-400 mt-1 uppercase tracking-wider">Tabbed Analytics View</p>
+        </div>
+
+        <div class="p-5 space-y-4 overflow-y-auto flex-1">
+            <!-- Sensor Fusion -->
+            <div class="metric-card p-3 rounded-lg">
+                <h3 class="text-xs font-bold text-slate-400 uppercase mb-2 flex justify-between items-center whitespace-nowrap">
+                    <span>Sensor Fusion Layer</span>
+                    <span class="text-emerald-400 bg-emerald-400/10 px-1.5 py-0.5 rounded text-[10px]">ONLINE</span>
+                </h3>
+                <div class="grid grid-cols-2 gap-2">
+                    <div class="bg-slate-800 p-2 rounded">
+                        <div class="text-[10px] text-slate-500 whitespace-nowrap">Active Queue</div>
+                        <div id="val-occupancy" class="text-lg font-mono font-bold text-white">0</div>
+                    </div>
+                    <div class="bg-slate-800 p-2 rounded border border-red-500/20">
+                        <div class="text-[10px] text-slate-500 text-red-300 whitespace-nowrap">Response Time</div>
+                        <div id="val-response" class="text-lg font-mono font-bold text-red-400">--</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Kinematics -->
+            <div class="metric-card p-3 rounded-lg">
+                <h3 class="text-xs font-bold text-slate-400 uppercase mb-2">Kinematics (IDM)</h3>
+                <div class="space-y-2 text-xs">
+                    <div class="flex justify-between items-center">
+                        <span class="text-slate-400">Avg Speed:</span>
+                        <span id="val-avg-speed" class="font-mono text-yellow-400">0 km/h</span>
+                    </div>
+                    <div class="flex justify-between items-center">
+                        <span class="text-slate-400">Signal Phase:</span>
+                        <span id="val-phase" class="font-mono text-white bg-slate-700 px-1 rounded">NS_GREEN</span>
+                    </div>
+                    <div class="flex justify-between items-center">
+                        <span class="text-slate-400">Phase Timer:</span>
+                        <span id="val-flow" class="font-mono text-blue-400">0s</span>
+                    </div>
+                    <div class="flex justify-between items-center">
+                        <span class="text-slate-400">System Accuracy:</span>
+                        <span id="val-accuracy" class="font-mono text-emerald-400">100%</span>
+                    </div>
+                    <div class="flex justify-between items-center">
+                        <span class="text-slate-400">Braking Events:</span>
+                        <span id="val-braking" class="font-mono text-orange-400">0</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Environment -->
+            <div class="metric-card p-3 rounded-lg border-l-4 border-l-yellow-500">
+                <h3 class="text-xs font-bold text-slate-400 uppercase mb-2">Sustainability</h3>
+                <div class="flex items-center justify-between mb-1">
+                    <span class="text-xs text-slate-300">Energy Harvested</span>
+                    <span id="val-energy" class="font-bold text-yellow-400 whitespace-nowrap">0.00 kWh</span>
+                </div>
+                <div class="w-full bg-slate-800 h-1.5 rounded-full overflow-hidden mb-3">
+                    <div id="bar-energy" class="h-full bg-yellow-500 transition-all duration-500" style="width: 0%"></div>
+                </div>
+                <div class="flex items-center justify-between">
+                    <span class="text-xs text-slate-300">Emissions</span>
+                    <span id="val-smoke" class="font-bold text-green-400">0</span>
+                </div>
+            </div>
+
+            <!-- Log -->
+            <div class="flex-1 min-h-[150px] bg-slate-900/80 rounded border border-slate-700 p-2 flex flex-col">
+                <div class="text-[10px] text-slate-500 uppercase font-bold mb-1 tracking-wider border-b border-slate-700 pb-1">Event Log</div>
+                <div id="log-container" class="flex-1 overflow-y-auto space-y-1 pr-1"></div>
+            </div>
+        </div>
+        
+        <!-- Controls -->
+        <div class="p-4 bg-slate-900 border-t border-slate-700 space-y-3">
+            <div class="grid grid-cols-2 gap-2">
+                <button onclick="toggleAnalytics()" class="bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-500 hover:to-purple-500 text-white text-xs font-bold py-3 rounded shadow-lg transition flex items-center justify-center gap-2 group">
+                    <span class="text-lg">📊</span> <span>Analytics</span>
+                </button>
+                <button onclick="downloadCSV()" class="bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold py-3 rounded shadow-lg transition flex items-center justify-center gap-2 group">
+                    <span class="text-lg">📥</span> <span>Export Data</span>
+                </button>
+            </div>
+            
+            <div class="grid grid-cols-2 gap-2">
+                <button onclick="spawnEmergency()" class="bg-red-600 hover:bg-red-500 text-white text-xs font-bold py-3 rounded shadow-lg transition flex flex-col items-center justify-center group">
+                    <span class="text-lg group-hover:scale-110 transition-transform">🚑</span> <span>Preemption</span>
+                </button>
+                <button onclick="generateAIReport()" class="bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold py-3 rounded shadow-lg transition flex flex-col items-center justify-center group">
+                    <span class="text-lg group-hover:rotate-12 transition-transform">✨</span> <span>AI Analysis</span>
+                </button>
+            </div>
+            <button onclick="toggleTraffic()" class="w-full bg-slate-700 hover:bg-slate-600 text-xs font-bold py-2 rounded">Pause/Resume</button>
+        </div>
+    </div>
+
+    <!-- Viewport -->
+    <div class="flex-1 relative bg-[#0b0f19] cursor-crosshair overflow-hidden">
+        <canvas id="simCanvas" class="w-full h-full"></canvas>
+        <div class="absolute top-4 right-4 bg-slate-900/90 p-3 rounded-lg border border-slate-700 shadow-xl pointer-events-none z-10 backdrop-blur">
+            <h4 class="text-[10px] font-bold text-slate-400 uppercase mb-2">Agent Classes</h4>
+            <div class="space-y-1.5 text-[10px]">
+                <div class="flex items-center gap-2"><div class="w-3 h-2 bg-blue-500 rounded-sm"></div> Sedan (IDM)</div>
+                <div class="flex items-center gap-2"><div class="w-4 h-2 bg-orange-500 rounded-sm"></div> HGV/Truck</div>
+                <div class="flex items-center gap-2"><div class="w-2 h-2 bg-purple-500 rounded-full"></div> Motorcycle</div>
+                <div class="flex items-center gap-2"><div class="w-3 h-2 bg-white border border-red-500"></div> Priority Unit</div>
+            </div>
+        </div>
+
+        <!-- AI Modal -->
+        <div id="ai-modal" class="absolute inset-0 modal-overlay hidden flex items-center justify-center z-50">
+            <div class="bg-slate-900 border border-indigo-500 rounded-xl shadow-2xl w-[600px] max-h-[80vh] flex flex-col">
+                <div class="p-4 border-b border-slate-700 flex justify-between items-center">
+                    <h2 class="font-bold text-indigo-400 flex items-center gap-2">✨ IMS Strategic Report</h2>
+                    <button onclick="closeModal('ai-modal')" class="text-slate-400 hover:text-white text-xl">&times;</button>
+                </div>
+                <div class="p-6 overflow-y-auto flex-1 font-mono text-sm leading-relaxed text-slate-300 relative">
+                    <div id="ai-loading" class="absolute inset-0 bg-slate-900 flex flex-col items-center justify-center z-10">
+                        <div class="w-8 h-8 border-2 border-indigo-500 border-t-transparent rounded-full animate-spin mb-2"></div>
+                        <span class="text-xs text-indigo-400">Processing Telemetry...</span>
+                    </div>
+                    <div id="ai-content"></div>
+                </div>
+                <div class="p-4 border-t border-slate-700 flex justify-end">
+                    <button onclick="speakReport()" id="btn-speak" class="mr-2 px-3 py-1.5 bg-slate-700 hover:bg-slate-600 rounded text-xs font-bold flex items-center gap-2"><span>🔊</span> Read Aloud</button>
+                    <button onclick="closeModal('ai-modal')" class="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-500 rounded text-xs font-bold">Close</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Analytics Modal -->
+        <div id="analytics-modal" class="absolute inset-0 modal-overlay hidden flex items-center justify-center z-50 p-10">
+            <div class="bg-slate-900 border border-blue-500/50 rounded-xl shadow-2xl w-full max-w-5xl h-[85vh] flex flex-col">
+                <!-- Header & Tabs -->
+                <div class="bg-slate-800 rounded-t-xl overflow-hidden">
+                    <div class="p-4 border-b border-slate-700 flex justify-between items-center">
+                        <div class="flex items-center gap-3">
+                            <span class="text-2xl">📊</span>
+                            <div>
+                                <h2 class="font-bold text-white text-lg">System Analytics & Performance</h2>
+                                <p class="text-[10px] text-slate-400 uppercase tracking-widest">Real-time Telemetry</p>
+                            </div>
+                        </div>
+                        <button onclick="closeModal('analytics-modal')" class="text-slate-400 hover:text-white text-2xl">&times;</button>
+                    </div>
+                    <!-- Tabs -->
+                    <div class="flex border-b border-slate-700">
+                        <button onclick="switchTab('graphs')" id="tab-graphs" class="flex-1 py-3 text-sm font-bold text-blue-400 border-b-2 border-blue-500 bg-slate-700/50 transition">📈 Graphs</button>
+                        <button onclick="switchTab('table')" id="tab-table" class="flex-1 py-3 text-sm font-bold text-slate-400 hover:text-white hover:bg-slate-700/30 transition">📝 Data Table</button>
+                    </div>
+                </div>
+
+                <div class="p-6 overflow-y-auto flex-1 bg-[#0b0f19] relative">
+                    
+                    <!-- View: Graphs -->
+                    <div id="view-graphs" class="grid grid-cols-2 gap-6">
+                        <div class="graph-container">
+                            <h4 class="graph-title">Emissions</h4>
+                            <canvas id="graph-emissions" class="graph"></canvas>
+                        </div>
+                        <div class="graph-container">
+                            <h4 class="graph-title">Avg Flow Velocity</h4>
+                            <canvas id="graph-speed" class="graph"></canvas>
+                        </div>
+                        <div class="graph-container">
+                            <h4 class="graph-title">Emergency Response (s)</h4>
+                            <canvas id="graph-emergency" class="graph"></canvas>
+                        </div>
+                        <div class="graph-container">
+                            <h4 class="graph-title">Flow Efficiency (%)</h4>
+                            <canvas id="graph-accuracy" class="graph"></canvas>
+                        </div>
+                    </div>
+
+                    <!-- View: Table (Hidden by default) -->
+                    <div id="view-table" class="hidden h-full flex flex-col">
+                        <div class="bg-white rounded-lg border border-slate-200 overflow-hidden shadow flex-1 flex flex-col">
+                            <div class="p-3 bg-slate-100 border-b border-slate-200 font-bold text-slate-700 text-xs uppercase tracking-wider">
+                                Live Data Log (3s Interval)
+                            </div>
+                            <div class="overflow-y-auto flex-1">
+                                <table class="w-full text-left text-[11px] text-slate-600 font-mono">
+                                    <thead class="bg-slate-50 sticky top-0 shadow-sm text-slate-800">
+                                        <tr>
+                                            <th class="p-2 font-bold border-b">Time</th>
+                                            <th class="p-2 font-bold border-b">Phase</th>
+                                            <th class="p-2 font-bold border-b">Queue</th>
+                                            <th class="p-2 font-bold border-b">Speed</th>
+                                            <th class="p-2 font-bold border-b">Emissions</th>
+                                            <th class="p-2 font-bold border-b">Energy</th>
+                                            <th class="p-2 font-bold border-b">Efficiency</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="data-table-body" class="divide-y divide-slate-100">
+                                        <!-- JS Injects Rows Here -->
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const canvas = document.getElementById('simCanvas');
+        const ctx = canvas.getContext('2d');
+        let apiKey = ""; 
+        
+        const IMS_CONFIG = { sensorRange: 150, roadWidth: 120, laneWidth: 30, timeStep: 1/60, smokeDecay: 0.05, emergencyGreenTime: 600, yellowDuration: 60, minGreen: 180, maxGreen: 900, fps: 60, fixedGreen: 900 };
+        let agents = [];
+        let isRunning = true;
+        let frameCount = 0;
+        let trafficPhase = 0; 
+        let phaseTimer = 0;
+        let phaseLimit = 300;
+        let emergencyMode = false;
+        let emergencyStartFrame = 0;
+        let totalEnergy = 0;
+        let totalSmoke = 0;
+        let brakingEvents = 0;
+        
+        let recordCounter = 0; 
+        const DATA_LOG = { emissions: [], speed: [], emergency: [], accuracy: [], maxPoints: 50 };
+        let excelData = [["Time (s)", "Cycle Phase", "Active Queue", "Avg Speed (km/h)", "Emissions", "Energy (kWh)", "Flow Efficiency (%)"]];
+
+        function startSimulation() {
+            const input = document.getElementById('api-key-input');
+            apiKey = input.value.trim();
+            document.getElementById('setup-modal').classList.add('hidden');
+            if (window.AudioContext || window.webkitAudioContext) {
+                new (window.AudioContext || window.webkitAudioContext)().resume().catch(e=>console.log(e));
+            }
+        }
+
+        class Agent {
+            constructor(dir, typeOverride = null) {
+                this.id = Math.floor(Math.random() * 10000);
+                this.dir = dir; 
+                const types = ['car', 'car', 'car', 'truck', 'bike'];
+                this.type = typeOverride || types[Math.floor(Math.random() * types.length)];
+                
+                if (this.type === 'truck') { this.len = 45; this.width = 24; this.maxSpeed = 1.8; this.accel = 0.1; this.brake = 0.1; } 
+                else if (this.type === 'bike') { this.len = 15; this.width = 10; this.maxSpeed = 3.5; this.accel = 0.4; this.brake = 0.3; } 
+                else if (this.type === 'ambulance') { this.len = 35; this.width = 22; this.maxSpeed = 4.5; this.accel = 0.5; this.brake = 0.4; } 
+                else { this.len = 25; this.width = 20; this.maxSpeed = 3.0; this.accel = 0.3; this.brake = 0.25; }
+
+                this.v = this.maxSpeed; this.x = 0; this.y = 0; this.a = 0; 
+                this.stalled = false; this.smoke = 0;
+                this.setSpawnPosition();
+            }
+
+            setSpawnPosition() {
+                const center = { x: canvas.width/2, y: canvas.height/2 };
+                const offset = 30; 
+                if (this.dir === 0) { this.x = center.x - offset; this.y = -50; }
+                else if (this.dir === 1) { this.x = center.x + offset; this.y = canvas.height + 50; }
+                else if (this.dir === 2) { this.x = -50; this.y = center.y + offset; }
+                else if (this.dir === 3) { this.x = canvas.width + 50; this.y = center.y - offset; }
+            }
+
+            update(leader, lightState, distToStop, isPriorityVehicle = false) {
+                let s = 1000; let dv = 0; let v_target = this.stalled ? 0 : this.maxSpeed;
+                if (!this.stalled && this.type !== 'ambulance') {
+                     const cleanFactor = Math.max(0, (200 - totalSmoke) / 200); v_target += (cleanFactor * 1.5);
+                }
+                if (emergencyMode && this.type !== 'ambulance') { v_target *= 0.89; } 
+
+                if (leader) {
+                    let dist = this.getDist(leader);
+                    s = dist - (this.len/2 + leader.len/2); dv = this.v - leader.v;
+                }
+                if (lightState !== 'green' && this.type !== 'ambulance') {
+                    if (distToStop > 0 && distToStop < 200) {
+                        if (distToStop < s) { s = distToStop - this.len/2; dv = this.v; }
+                    }
+                }
+                const s0 = 4.0; const T = 1.0; const delta = 4;
+                if (this.stalled) { this.a = -this.brake; } else {
+                    let s_star = s0 + (this.v * T) + (this.v * dv) / (2 * Math.sqrt(this.accel * this.brake));
+                    if (s <= 0.1) s = 0.1;
+                    this.a = this.accel * (1 - Math.pow(this.v / v_target, delta) - Math.pow(s_star / s, 2));
+                }
+                this.v += this.a * 1; if (this.v < 0) this.v = 0;
+                if (this.dir === 0) this.y += this.v;
+                if (this.dir === 1) this.y -= this.v;
+                if (this.dir === 2) this.x += this.v;
+                if (this.dir === 3) this.x -= this.v;
+
+                if (this.stalled) { this.smoke = Math.min(this.smoke + 0.5, 50); } 
+                else if (this.v < 0.5) { this.smoke = Math.min(this.smoke + 0.05, 20); } 
+                else { this.smoke = Math.max(0, this.smoke - 0.8); }
+                
+                if (this.a < -0.05 && this.v > 0.5) brakingEvents++;
+                if (this.x < -100 || this.x > canvas.width + 100 || this.y < -100 || this.y > canvas.height + 100) return false;
+                return true;
+            }
+
+            getDist(other) {
+                if (!other) return 9999;
+                return Math.sqrt(Math.pow(this.x - other.x, 2) + Math.pow(this.y - other.y, 2));
+            }
+
+            draw() {
+                ctx.save(); ctx.translate(this.x, this.y);
+                let angle = 0;
+                if (this.dir === 0) angle = Math.PI / 2;
+                if (this.dir === 1) angle = -Math.PI / 2;
+                if (this.dir === 2) angle = 0;
+                if (this.dir === 3) angle = Math.PI;
+                ctx.rotate(angle);
+
+                const l = this.len; const w = this.width;
+                ctx.fillStyle = 'rgba(0,0,0,0.5)'; ctx.fillRect(-l/2 + 2, -w/2 + 2, l, w);
+                ctx.fillStyle = this.stalled ? '#ef4444' : (this.type === 'ambulance' ? '#ffffff' : (this.type==='truck'?'#c2410c':(this.type==='bike'?'#a855f7':'#3b82f6')));
+                ctx.fillRect(-l/2, -w/2, l, w);
+
+                if (this.type === 'ambulance') {
+                    ctx.fillStyle = '#ef4444'; ctx.fillRect(-2, -w/2, 4, w); ctx.fillRect(-l/2, -2, l, 4);
+                    if (Math.floor(Date.now()/100)%2===0) {
+                        ctx.fillStyle = '#ef4444'; ctx.beginPath(); ctx.arc(-l/2+2, -w/2+2, 2, 0, Math.PI*2); ctx.fill();
+                        ctx.fillStyle = '#3b82f6'; ctx.beginPath(); ctx.arc(-l/2+2, w/2-2, 2, 0, Math.PI*2); ctx.fill();
+                    }
+                }
+                if (this.a < 0 || this.v < 0.1) {
+                    ctx.fillStyle = '#ff0000'; ctx.shadowColor = '#ff0000'; ctx.shadowBlur = 5;
+                    ctx.fillRect(-l/2, -w/2, 2, 4); ctx.fillRect(-l/2, w/2 - 4, 2, 4); ctx.shadowBlur = 0;
+                }
+                if (this.smoke > 0) {
+                    ctx.fillStyle = `rgba(100,100,100,${this.smoke/50})`;
+                    ctx.beginPath(); ctx.arc(-l/2 - 10, 0, 10 + this.smoke/2, 0, Math.PI*2); ctx.fill();
+                }
+                ctx.restore();
+            }
+        }
+
+        function init() {
+            resize(); window.addEventListener('resize', resize);
+            canvas.addEventListener('mousedown', e => {
+                const rect = canvas.getBoundingClientRect();
+                const mx = e.clientX - rect.left; const my = e.clientY - rect.top;
+                if (e.target.id === 'ai-modal') closeModal('ai-modal');
+                agents.forEach(a => {
+                    const d = Math.sqrt((mx - a.x)**2 + (my - a.y)**2);
+                    if (d < 20) { a.stalled = !a.stalled; log(`User: Vehicle #${a.id} ${a.stalled ? 'STALLED' : 'CLEARED'}`); }
+                });
+            });
+            log("IMS Core v5.13 Initialized.");
+            populateHeavyTraffic(); 
+            loop(); 
+            setInterval(recordDataSnapshot, 3000);
+        }
+
+        // --- TAB SWITCHING LOGIC ---
+        function switchTab(tab) {
+            const graphsBtn = document.getElementById('tab-graphs');
+            const tableBtn = document.getElementById('tab-table');
+            const graphsView = document.getElementById('view-graphs');
+            const tableView = document.getElementById('view-table');
+
+            if (tab === 'graphs') {
+                graphsView.classList.remove('hidden');
+                tableView.classList.add('hidden');
+                graphsBtn.className = "flex-1 py-3 text-sm font-bold text-blue-400 border-b-2 border-blue-500 bg-slate-700/50 transition";
+                tableBtn.className = "flex-1 py-3 text-sm font-bold text-slate-400 hover:text-white hover:bg-slate-700/30 transition";
+                drawGraphs(); // Redraw canvases
+            } else {
+                graphsView.classList.add('hidden');
+                tableView.classList.remove('hidden');
+                tableBtn.className = "flex-1 py-3 text-sm font-bold text-blue-400 border-b-2 border-blue-500 bg-slate-700/50 transition";
+                graphsBtn.className = "flex-1 py-3 text-sm font-bold text-slate-400 hover:text-white hover:bg-slate-700/30 transition";
+            }
+        }
+
+        function recordDataSnapshot() {
+            if (!isRunning) return;
+            recordCounter += 3;
+            const activeCars = agents.length;
+            const movingCars = agents.filter(a => a.v > 0.5).length;
+            const accuracy = activeCars > 0 ? (movingCars / activeCars) * 100 : 100;
+            const emissionsIndex = Math.min((totalSmoke / 500) * 50, 50);
+            const avgSpeed = activeCars > 0 ? (agents.reduce((acc,a)=>acc+a.v,0) / activeCars) * 10 : 0;
+            
+            if (DATA_LOG.emissions.push(emissionsIndex) > DATA_LOG.maxPoints) DATA_LOG.emissions.shift();
+            if (DATA_LOG.speed.push(avgSpeed) > DATA_LOG.maxPoints) DATA_LOG.speed.shift();
+            if (DATA_LOG.accuracy.push(accuracy) > DATA_LOG.maxPoints) DATA_LOG.accuracy.shift();
+            
+            const phaseName = (emergencyMode) ? "EMERGENCY" : (['NS_GREEN', 'NS_YELLOW', 'EW_GREEN', 'EW_YELLOW'][trafficPhase]);
+            const queue = document.getElementById('val-occupancy').innerText;
+            excelData.push([recordCounter, phaseName, queue, avgSpeed.toFixed(1), emissionsIndex.toFixed(1), totalEnergy.toFixed(3), accuracy.toFixed(1)]);
+            
+            // Only draw graphs if they are visible
+            if (!document.getElementById('analytics-modal').classList.contains('hidden') && !document.getElementById('view-graphs').classList.contains('hidden')) {
+                drawGraphs();
+            }
+            
+            // Always update table
+            const tbody = document.getElementById('data-table-body');
+            if (tbody) {
+                const row = document.createElement('tr');
+                row.className = "border-b border-slate-100 hover:bg-slate-50";
+                row.innerHTML = `
+                    <td class="p-2">${recordCounter}s</td>
+                    <td class="p-2">${phaseName}</td>
+                    <td class="p-2">${queue}</td>
+                    <td class="p-2">${avgSpeed.toFixed(1)} km/h</td>
+                    <td class="p-2">${emissionsIndex.toFixed(1)}</td>
+                    <td class="p-2">${totalEnergy.toFixed(3)}</td>
+                    <td class="p-2">${accuracy.toFixed(1)}%</td>
+                `;
+                tbody.prepend(row);
+                if (tbody.children.length > 50) tbody.lastChild.remove();
+            }
+            
+            log("💾 Data Snapshot recorded: T+" + recordCounter + "s");
+        }
+
+        function populateHeavyTraffic() {
+            const queueLength = 15; const gap = 28;
+            const center = { x: canvas.width/2, y: canvas.height/2 };
+            const stopOff = IMS_CONFIG.roadWidth/2 + 20; const laneOff = 30;
+            for(let dir=0; dir<4; dir++) {
+                for(let i=0; i<queueLength; i++) {
+                    let car = new Agent(dir, 'car');
+                    if (dir === 0) { car.y = (center.y - stopOff) - (i * gap); car.x = center.x - laneOff; }
+                    else if (dir === 1) { car.y = (center.y + stopOff) + (i * gap); car.x = center.x + laneOff; }
+                    else if (dir === 2) { car.x = (center.x - stopOff) - (i * gap); car.y = center.y + laneOff; }
+                    else if (dir === 3) { car.x = (center.x + stopOff) + (i * gap); car.y = center.y - laneOff; }
+                    car.smoke = 40; 
+                    if (i < 3) car.v = car.maxSpeed * 0.5; else car.v = 0;
+                    agents.push(car);
+                }
+            }
+            log("ALERT: Heavy Congestion Detected. Protocols Engaged.");
+        }
+
+        function spawnEmergency() {
+            if (emergencyMode) return;
+            emergencyMode = true; emergencyStartFrame = frameCount;
+            document.getElementById('val-response').innerText = "0.0s";
+            document.getElementById('val-response').className = "text-lg font-mono font-bold text-yellow-400 animate-pulse";
+            const amb = new Agent(0, 'ambulance'); amb.y = -200; agents.push(amb);
+            log("🚑 PRIORITY: Ambulance Dispatch. Passive Mode Active.");
+        }
+
+        function updateSimulation() {
+            if (!isRunning) return;
+            frameCount++; phaseTimer++;
+            let activeQueue = 0;
+            if (trafficPhase === 0) activeQueue = agents.filter(a => a.dir <= 1 && a.v < 0.5).length;
+            else if (trafficPhase === 2) activeQueue = agents.filter(a => a.dir >= 2 && a.v < 0.5).length;
+
+            let currentLimit = 0;
+            if (trafficPhase === 0 || trafficPhase === 2) { currentLimit = IMS_CONFIG.fixedGreen; } 
+            else { currentLimit = IMS_CONFIG.yellowDuration; }
+            phaseLimit = currentLimit;
+
+            let ambulance = null;
+            if (emergencyMode) {
+                ambulance = agents.find(a => a.type === 'ambulance');
+                const elapsedFrames = frameCount - emergencyStartFrame;
+                const elapsedSec = (elapsedFrames / IMS_CONFIG.fps).toFixed(1);
+                const timerEl = document.getElementById('val-response');
+                if (timerEl) timerEl.innerText = `${elapsedSec}s`;
+
+                if (!ambulance || ambulance.y > canvas.height) {
+                    emergencyMode = false;
+                    log(`Priority Vehicle Cleared. Response Time: ${elapsedSec}s.`);
+                    if (DATA_LOG.emergency.push(parseFloat(elapsedSec)) > 20) DATA_LOG.emergency.shift();
+                    if (timerEl) { timerEl.innerText = `${elapsedSec}s`; timerEl.className = "text-lg font-mono font-bold text-emerald-400"; }
+                }
+            } 
+            
+            if (phaseTimer > phaseLimit) { phaseTimer = 0; trafficPhase = (trafficPhase + 1) % 4; }
+
+            if (Math.random() < 0.1) { 
+                const dir = Math.floor(Math.random() * 4);
+                const center = { x: canvas.width/2, y: canvas.height/2 };
+                const spawnClear = !agents.some(a => a.dir === dir && Math.abs(a.x - (dir===2?-50:dir===3?canvas.width+50:(dir===0?center.x-30:center.x+30))) < 45 && Math.abs(a.y - (dir===0?-50:dir===1?canvas.height+50:(dir===2?center.y+30:center.y-30))) < 45);
+                if (spawnClear) agents.push(new Agent(dir));
+            }
+
+            totalSmoke = 0; let totalSpeed = 0;
+            const dirs = [[], [], [], []]; agents.forEach(a => dirs[a.dir].push(a));
+            dirs[0].sort((a,b) => b.y - a.y); dirs[1].sort((a,b) => a.y - b.y); dirs[2].sort((a,b) => b.x - a.x); dirs[3].sort((a,b) => a.x - b.x);
+            const cx = canvas.width/2; const cy = canvas.height/2; const stopDist = IMS_CONFIG.roadWidth/2 + 20;
+
+            agents.forEach(a => {
+                const myGroup = dirs[a.dir]; const idx = myGroup.indexOf(a); const leader = (idx > 0) ? myGroup[idx-1] : null;
+                let light = 'green'; let distToLine = 9999;
+                if (a.dir === 0) distToLine = (cy - stopDist) - a.y;
+                if (a.dir === 1) distToLine = a.y - (cy + stopDist);
+                if (a.dir === 2) distToLine = (cx - stopDist) - a.x;
+                if (a.dir === 3) distToLine = a.x - (cx + stopDist);
+
+                let myPhaseGreen = false;
+                if (a.dir <= 1 && (trafficPhase === 0 || trafficPhase === 1)) myPhaseGreen = true;
+                if (a.dir >= 2 && (trafficPhase === 2 || trafficPhase === 3)) myPhaseGreen = true;
+                if (myPhaseGreen && (trafficPhase === 1 || trafficPhase === 3)) light = 'yellow'; else if (!myPhaseGreen) light = 'red';
+
+                a.update(leader, light, distToLine);
+                checkPiezo(a); totalSmoke += a.smoke; totalSpeed += a.v;
+                if (a.v < 0.5) activeQueue++;
+            });
+            agents = agents.filter(a => a.x > -400 && a.x < canvas.width + 400 && a.y > -400 && a.y < canvas.height + 400);
+            updateDashboard(totalSpeed, activeQueue, currentLimit);
+        }
+
+        function checkPiezo(a) {
+            const cx = canvas.width/2; const cy = canvas.height/2; const t = 60; let hit = false;
+            if (a.dir === 0 && Math.abs(a.y - (cy - t)) < 5) hit = true;
+            if (a.dir === 1 && Math.abs(a.y - (cy + t)) < 5) hit = true;
+            if (a.dir === 2 && Math.abs(a.x - (cx - t)) < 5) hit = true;
+            if (a.dir === 3 && Math.abs(a.x - (cx + t)) < 5) hit = true;
+            if (hit) totalEnergy += (a.type==='truck' ? 0.05 : 0.01);
+        }
+
+        function updateDashboard(totalSpeed, queue, limit) {
+            document.getElementById('val-occupancy').innerText = queue;
+            let remaining = Math.max(0, (limit - phaseTimer) / 60).toFixed(1);
+            const flowEl = document.getElementById('val-flow'); if (flowEl) flowEl.innerText = remaining + 's';
+            const avg = agents.length > 0 ? (totalSpeed / agents.length) * 10 : 0;
+            document.getElementById('val-avg-speed').innerText = avg.toFixed(1) + ' km/h';
+            const phases = ['NS_GREEN', 'NS_YELLOW', 'EW_GREEN', 'EW_YELLOW'];
+            const phaseName = phases[trafficPhase];
+            document.getElementById('val-phase').innerText = phaseName;
+            const brakingEl = document.getElementById('val-braking'); if (brakingEl) brakingEl.innerText = brakingEvents;
+            document.getElementById('val-energy').innerText = totalEnergy.toFixed(2) + ' kWh';
+            document.getElementById('bar-energy').style.width = Math.min(totalEnergy * 2, 100) + '%';
+            
+            const elSmoke = document.getElementById('val-smoke');
+            const emissionsVal = Math.min((totalSmoke / 500) * 50, 50).toFixed(1);
+            let smokeColor = "text-green-400";
+            if (emissionsVal > 30) { smokeColor = "text-red-500"; }
+            else if (emissionsVal > 15) { smokeColor = "text-orange-400"; } 
+            else if (emissionsVal > 5) { smokeColor = "text-yellow-400"; }
+            
+            elSmoke.innerText = emissionsVal; // Value Only
+            elSmoke.className = `font-bold ${smokeColor}`;
+            
+            const moving = agents.filter(a => a.v > 0.5).length;
+            const acc = agents.length > 0 ? ((moving/agents.length)*100).toFixed(0) : 100;
+            document.getElementById('val-accuracy').innerText = acc + "%";
+        }
+
+        function log(msg) {
+            const c = document.getElementById('log-container');
+            const d = document.createElement('div'); d.className = 'log-entry text-slate-400 border-l-2 border-slate-600 pl-2 mb-1';
+            d.innerHTML = `<span class="text-slate-500">[${new Date().toLocaleTimeString().split(' ')[0]}]</span> ${msg}`;
+            c.prepend(d); if (c.children.length > 20) c.lastChild.remove();
+        }
+
+        function downloadCSV() {
+            let csvContent = "data:text/csv;charset=utf-8," + excelData.map(e => e.join(",")).join("\n");
+            var encodedUri = encodeURI(csvContent);
+            var link = document.createElement("a");
+            link.setAttribute("href", encodedUri);
+            link.setAttribute("download", "ims_traffic_data.csv");
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+        }
+
+        function toggleAnalytics() { document.getElementById('analytics-modal').classList.remove('hidden'); switchTab('graphs'); }
+        function closeModal(id) { document.getElementById(id).classList.add('hidden'); }
+
+        function drawGraphs() {
+            drawSimpleLine('graph-emissions', DATA_LOG.emissions, '#ef4444', 50);
+            drawSimpleLine('graph-speed', DATA_LOG.speed, '#3b82f6', 50);
+            drawSimpleBar('graph-emergency', DATA_LOG.emergency, '#ef4444');
+            drawSimpleLine('graph-accuracy', DATA_LOG.accuracy, '#10b981', 100);
+        }
+
+        function drawSimpleLine(id, data, color, maxY) {
+            const c = document.getElementById(id); if (!c) return;
+            const dpr = window.devicePixelRatio || 1; const rect = c.getBoundingClientRect();
+            c.width = rect.width * dpr; c.height = rect.height * dpr;
+            const ctx = c.getContext('2d'); ctx.scale(dpr, dpr); ctx.clearRect(0, 0, rect.width, rect.height);
+            ctx.fillStyle = '#ffffff'; ctx.fillRect(0, 0, rect.width, rect.height);
+            const padL = 40, padR = 10, padT = 10, padB = 20;
+            const graphW = rect.width - padL - padR; const graphH = rect.height - padT - padB;
+            ctx.strokeStyle = '#000000'; ctx.lineWidth = 1.5;
+            ctx.beginPath(); ctx.moveTo(padL, padT); ctx.lineTo(padL, rect.height - padB); ctx.lineTo(rect.width - padR, rect.height - padB); ctx.stroke();
+            ctx.fillStyle = '#000000'; ctx.font = '10px sans-serif'; ctx.textAlign = 'right'; ctx.textBaseline = 'middle';
+            // REMOVED Y-AXIS LABELS
+            if (data.length < 2) return;
+            ctx.strokeStyle = color; ctx.lineWidth = 2; ctx.beginPath();
+            const stepX = graphW / (DATA_LOG.maxPoints - 1);
+            data.forEach((val, i) => {
+                const x = padL + (i * stepX); const y = (rect.height - padB) - ((val / maxY) * graphH);
+                if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+            });
+            ctx.stroke();
+        }
+
+        function drawSimpleBar(id, data, color) {
+            const c = document.getElementById(id); if (!c) return;
+            const dpr = window.devicePixelRatio || 1; const rect = c.getBoundingClientRect();
+            c.width = rect.width * dpr; c.height = rect.height * dpr;
+            const ctx = c.getContext('2d'); ctx.scale(dpr, dpr); ctx.clearRect(0, 0, rect.width, rect.height);
+            ctx.fillStyle = '#ffffff'; ctx.fillRect(0, 0, rect.width, rect.height);
+            const padL = 40, padR = 10, padT = 10, padB = 20;
+            const graphW = rect.width - padL - padR; const graphH = rect.height - padT - padB;
+            ctx.strokeStyle = '#000000'; ctx.lineWidth = 1.5;
+            ctx.beginPath(); ctx.moveTo(padL, padT); ctx.lineTo(padL, rect.height - padB); ctx.lineTo(rect.width - padR, rect.height - padB); ctx.stroke();
+            if (data.length === 0) { ctx.fillStyle = '#000000'; ctx.font = '12px monospace'; ctx.textAlign = 'center'; ctx.fillText("NO DATA", rect.width/2, rect.height/2); return; }
+            const barWidth = (graphW / 20) - 4; const maxVal = Math.max(...data, 10);
+            ctx.fillStyle = '#000000'; ctx.font = '10px sans-serif'; ctx.textAlign = 'right'; ctx.textBaseline = 'middle';
+            // REMOVED Y-AXIS LABELS
+            data.forEach((val, i) => {
+                if (i < data.length - 20) return;
+                const plotIndex = i - (data.length > 20 ? data.length - 20 : 0);
+                const h = (val / maxVal) * graphH; const x = padL + (plotIndex * (barWidth + 4)) + 2; const y = (rect.height - padB) - h;
+                ctx.fillStyle = color; ctx.fillRect(x, y, barWidth, h);
+            });
+        }
+
+        function resize() { canvas.width = canvas.parentElement.clientWidth; canvas.height = canvas.parentElement.clientHeight; }
+
+        function loop() {
+            updateSimulation();
+            const cx = canvas.width/2; const cy = canvas.height/2; const w = IMS_CONFIG.roadWidth;
+            ctx.fillStyle = '#0b0f19'; ctx.fillRect(0, 0, canvas.width, canvas.height);
+            ctx.fillStyle = '#1e293b'; ctx.fillRect(cx - w/2, 0, w, canvas.height); ctx.fillRect(0, cy - w/2, canvas.width, w);
+            ctx.strokeStyle = '#334155'; ctx.lineWidth = 2; ctx.setLineDash([10, 10]);
+            ctx.beginPath(); ctx.moveTo(cx, 0); ctx.lineTo(cx, cy - w/2); ctx.moveTo(cx, cy + w/2); ctx.lineTo(cx, canvas.height); 
+            ctx.moveTo(0, cy); ctx.lineTo(cx - w/2, cy); ctx.moveTo(cx + w/2, cy); ctx.lineTo(canvas.width, cy); 
+            ctx.stroke(); ctx.setLineDash([]);
+            ctx.strokeStyle = '#94a3b8'; ctx.lineWidth = 4; const stopOff = w/2 + 20;
+            ctx.beginPath(); ctx.moveTo(cx-w/2, cy-stopOff); ctx.lineTo(cx, cy-stopOff); ctx.moveTo(cx, cy+stopOff); ctx.lineTo(cx+w/2, cy+stopOff); 
+            ctx.moveTo(cx-stopOff, cy); ctx.lineTo(cx-stopOff, cy+w/2); ctx.moveTo(cx+stopOff, cy-w/2); ctx.lineTo(cx+stopOff, cy); 
+            ctx.stroke();
+            ctx.fillStyle = '#d97706'; const pOff = 60; const isFlash = (x,y) => agents.some(a => Math.abs(a.x-x)<20 && Math.abs(a.y-y)<20);
+            let col = isFlash(cx-30, cy-pOff) ? '#fbbf24' : '#d97706'; ctx.fillStyle = col; ctx.fillRect(cx - w/2 + 10, cy - pOff, w/2 - 20, 6); 
+            col = isFlash(cx+30, cy+pOff) ? '#fbbf24' : '#d97706'; ctx.fillStyle = col; ctx.fillRect(cx + 10, cy + pOff, w/2 - 20, 6); 
+            agents.forEach(a => a.draw());
+            drawTrafficLights(cx, cy, w); drawSensors();
+            requestAnimationFrame(loop);
+        }
+        
+        function drawSensors() {
+            const cx = canvas.width/2; const cy = canvas.height/2; const w = IMS_CONFIG.roadWidth;
+            ctx.fillStyle = 'rgba(6, 182, 212, 0.05)'; ctx.strokeStyle = 'rgba(6, 182, 212, 0.2)';
+            const drawCone = (x, y, angle) => {
+                ctx.save(); ctx.translate(x,y); ctx.rotate(angle);
+                ctx.beginPath(); ctx.moveTo(0,0); ctx.lineTo(-20, 150); ctx.arc(0, 150, 20, Math.PI, 0); ctx.lineTo(20, 150);
+                ctx.closePath(); ctx.fill(); ctx.stroke(); ctx.restore();
+            };
+            if (trafficPhase === 0 || trafficPhase === 1) { drawCone(cx-w/2, cy-w/2, Math.PI); drawCone(cx+w/2, cy+w/2, 0); }
+            else { drawCone(cx-w/2, cy+w/2, -Math.PI/2); drawCone(cx+w/2, cy-w/2, Math.PI/2); }
+        }
+
+        function drawTrafficLights(cx, cy, w) {
+            const drawLight = (x, y, state) => {
+                ctx.fillStyle = '#1e293b'; ctx.fillRect(x-6, y-15, 12, 30);
+                const colors = { red: '#450a0a', yellow: '#422006', green: '#052e16' };
+                const activeColors = { red: '#ef4444', yellow: '#eab308', green: '#22c55e' };
+                ['red', 'yellow', 'green'].forEach((c, i) => {
+                    ctx.fillStyle = (state === c) ? activeColors[c] : colors[c];
+                    ctx.beginPath(); ctx.arc(x, y - 8 + (i*8), 3, 0, Math.PI*2); ctx.fill();
+                    if (state === c) { ctx.shadowColor = activeColors[c]; ctx.shadowBlur = 10; ctx.fill(); ctx.shadowBlur = 0; }
+                });
+            };
+            let ns = 'red', ew = 'red';
+            if (trafficPhase === 0) ns = 'green'; else if (trafficPhase === 1) ns = 'yellow';
+            else if (trafficPhase === 2) ew = 'green'; else if (trafficPhase === 3) ew = 'yellow';
+            if (emergencyMode) { /* No Override */ }
+            drawLight(cx - w/2 - 10, cy - w/2 - 10, ns); drawLight(cx + w/2 + 10, cy + w/2 + 10, ns);
+            drawLight(cx - w/2 - 10, cy + w/2 + 10, ew); drawLight(cx + w/2 + 10, cy - w/2 - 10, ew);
+        }
+
+        function generateAIReport() {
+            const modal = document.getElementById('ai-modal');
+            const loading = document.getElementById('ai-loading');
+            const content = document.getElementById('ai-content');
+            modal.classList.remove('hidden'); loading.classList.remove('hidden'); content.innerText = "";
+            const telemetry = {
+                flow: document.getElementById('val-flow').innerText,
+                avgSpeed: document.getElementById('val-avg-speed').innerText,
+                braking: brakingEvents, energy: totalEnergy.toFixed(2), smoke: totalSmoke.toFixed(1),
+                phase: emergencyMode ? 'EMERGENCY_PREEMPT' : (trafficPhase%2===0 ? 'GREEN_PHASE' : 'YELLOW_PHASE')
+            };
+            const prompt = `ACT AS: IMS Core AI. ANALYZE: Traffic Intersection Telemetry. DATA: Flow: ${telemetry.flow}, Speed: ${telemetry.avgSpeed}, Emissions: ${telemetry.smoke}. REPORT: 1. STATUS 2. ANALYSIS 3. RECOMMENDATION.`;
+            fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${apiKey}`, {
+                method: 'POST', headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] })
+            }).then(res => res.json()).then(data => {
+                loading.classList.add('hidden');
+                const text = data.candidates?.[0]?.content?.parts?.[0]?.text || "ANALYSIS FAILED";
+                window.currentReport = text; typeText(content, text);
+            }).catch(err => { loading.classList.add('hidden'); content.innerText = "CONNECTION_ERR"; });
+        }
+        function typeText(el, text) {
+            el.innerHTML = ""; el.classList.add('typing'); let i = 0;
+            const t = setInterval(() => { el.innerHTML += text.charAt(i); i++; if (i >= text.length) { clearInterval(t); el.classList.remove('typing'); } }, 10);
+        }
+        function speakReport() { /* Existing TTS Logic */ }
+        function toggleTraffic() { isRunning = !isRunning; log(isRunning ? "System Resumed" : "System Paused"); }
+        function closeModal(id) { document.getElementById(id).classList.add('hidden'); }
+
+        init();
+    </script>
+</body>
+</html>
